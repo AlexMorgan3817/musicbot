@@ -1,0 +1,4 @@
+/config/*
+!/config/*/
+__pycache__/
+lib/*

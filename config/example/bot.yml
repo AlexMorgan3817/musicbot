@@ -1,0 +1,3 @@
+token: 'Your bot token'
+id: Your bot ID as int
+prefix: 'Command prefix'
