@@ -6,14 +6,26 @@ Put the music or .lnks in the ./lib/ folder and do not forget to setup config/bo
 
 ## Commands
 &join
+
 Join in the voice chat of command's author
+
 &leave
+
 Leave voice chat
+
 &play track_query
+
 Searches and plays track with closest match of name and track_query from ./lib/ folder
+
 &stop
+
 Stops current stream
+
 &lib
+
 Shows music lib in ./lib/
+
 &bunker
+
 Toogles "whitelisted" setting on/off, to use it properly setup whitelist in config/bot.yml
+
