@@ -1,3 +1,5 @@
 token: 'Your bot token'
 id: Your bot ID as int
-prefix: 'Command prefix'
+prefix: '!'
+whitelisted: false
+whitelist: ["owner_of_bot_discord_name"]
