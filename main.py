@@ -3,11 +3,11 @@ from discord import *
 from discord.ext import commands
 from discord import FFmpegPCMAudio
 import ffmpeg
-from os.path import exists as fexist
+from os.path import exists as fexist, isdir
 from os import listdir, walk
 import LnkParse3 as lps
 
-from config import GetSetting, SetSetting
+from config import GetSetting, SetSetting, SAVE_CONFIGURATION
 
 I = discord.Intents.default()
 I.message_content = True
@@ -108,9 +108,11 @@ async def play(ctx):
 	ext = p.split(".")
 	if ext[-1] == "lnk":
 		f = open(p, 'rb')
-		lnk = lps.lnk_file(f)
-		j = lnk.get_json()["link_info"]
+		lnk_data:string = lps.lnk_file(f)
+		j = lnk_data.get_json()["link_info"]
 		p = j["local_base_path"] + j["common_path_suffix"]
+		# if(isdir(p))
+			
 		print(p)
 		f.close()
 	global CurrentPlayingMusic
@@ -118,21 +120,21 @@ async def play(ctx):
 		stopPlaying(ctx)
 	await ctx.send("Playing " + n)
 	CurrentPlayingMusic = playing(ctx, p)
+	def streamexhausted(_):
+		global CurrentPlayingMusic
+		global loopingaudio
+		global skiplooping
+		if loopingaudio and not skiplooping:
+			CurrentPlayingMusic.ctx.voice_client.play(
+				FFmpegPCMAudio(CurrentPlayingMusic.path),
+				after=streamexhausted
+			)
+		else:
+			skiplooping = False
+			CurrentPlayingMusic = None
 	ctx.voice_client.play(FFmpegPCMAudio(p), after=streamexhausted)
 	await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=n))
 
-def streamexhausted(_):
-	global CurrentPlayingMusic
-	global loopingaudio
-	global skiplooping
-	if loopingaudio and not skiplooping:
-		CurrentPlayingMusic.ctx.voice_client.play(
-			FFmpegPCMAudio(CurrentPlayingMusic.path),
-			after=streamexhausted
-		)
-	else:
-		skiplooping = False
-		CurrentPlayingMusic = None
 @bot.command(pass_context = True)
 async def loop(ctx):
 	global loopingaudio
@@ -162,33 +164,43 @@ async def leave(ctx):
 		await ctx.voice_client.disconnect()
 	else:
 		await ctx.send("I am not in the voice channel.")
-@bot.command(pass_context = True)
+
+@bot.command(pass_context = True,
+	brief="Shows files available.",
+	description="Shows files on server available for play.")
 async def lib(ctx):
-	dot = []
 	root = './lib/'
+	embedVar = discord.Embed(color=0x8833dd)
+	root_dir = []
 	for i in listdir(root):
 		sp = i.split(".")
-		if len(sp) == 1:
-			dot.append(f'### {sp[0]}/')
+		if len(sp) == 1: # dir
 			file_list = getFilesInFolder(root + i)
-			files = ""
-			for i in range(0, len(file_list)-1):
-				files += file_list[i] + ", "
-				# dot.append(f'\t{i}')
-			files += file_list[-1]
-			dot.append(files)
-			continue
-		if sp[-1] in permited_extentions:
-			dot.append(i)
+			res = []
+			for f in file_list:
+				s = f.split(".")
+				res.append(".".join(s[:-1]))
+			embedVar.add_field(name=i, value="; ".join(res), inline=False)
 		else:
-			dot.append("~~" + i + "~~")
-	print(dot)
-	await ctx.send("\n".join(dot))
+			if sp[-1] in permited_extentions:
+				root_dir.append(".".join(sp[:-1]))
+	embedVar.add_field(name="./", value="; ".join(root_dir), inline=False)
 
+	# print(dot)
+	await ctx.send(embed=embedVar)
 @bot.command(pass_context = True)
 async def bunker(ctx):
+	# On/Off whitelist access to bot
 	v = not GetSetting("whitelisted")
 	SetSetting("whitelisted", v)
 	await ctx.send(f"Bunker turned {'on' if v else 'off'}.")
 
+# @bot.command(pass_context = True)
+# async def hide(ctx):
+# 	v = not GetSetting("hiden-path")
+# 	SetSetting("hiden-path", v)
+# 	await ctx.send(f"Hide {'on' if v else 'off'}.")
+
 bot.run(GetSetting('token'))
+# SAVE_CONFIGURATION()
+# print("End.")

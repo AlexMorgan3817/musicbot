@@ -5,13 +5,19 @@ except ImportError:
 	from yaml import Loader, Dumper
 
 configuration = {}
-def LOAD_CONFIGURATION(path):
+def LOAD_CONFIGURATION(path = "config/bot.yml"):
 	file = open(path)
 	data = load(file.read(), Loader)
+	print(dump(data, Dumper=Dumper))
 	file.close()
 	return data
 
-configuration = LOAD_CONFIGURATION("config/bot.yml")
+def SAVE_CONFIGURATION(path = "config/bot.yml", cfg = configuration):
+	f = open(path)
+	dump(cfg, f, Dumper=Dumper)
+	f.close()
+
+configuration = LOAD_CONFIGURATION()
 
 def GetSetting(key, config = configuration):
 	if(key in config):
