@@ -2,26 +2,26 @@ import discord
 from discord import *
 from discord.ext import commands
 from discord import FFmpegPCMAudio
+import asyncio
 import ffmpeg
 from os.path import exists as fexist, isdir
 from os import listdir, walk
 import LnkParse3 as lps
+from random import choice as pick
 
 from config import GetSetting, SetSetting, SAVE_CONFIGURATION
+
+from structures import *
 
 I = discord.Intents.default()
 I.message_content = True
 
-class playing:
-	def __init__(self, _ctx, _path):
-		self.ctx  = _ctx
-		self.path = _path
-
 bot:commands.Bot = commands.Bot(command_prefix = GetSetting('prefix'), intents = I)
-loopingaudio = True
-CurrentPlayingMusic:playing = None
+loopingaudio = False
+Queue:list = []
+CurrentPlayingMusic:PlayingData = None
 permited_extentions = ["mp3", "ogg", "flac", "lnk"]
-
+listvariants = ["◈", "◍", "◰"]
 skiplooping = False
 
 def getFilesInFolder(path, recursive = False):
@@ -59,6 +59,41 @@ def get_dirs(path = "./lib/"):
 		dot += d_names
 	return dot
 
+async def Play(PD: PlayingData):
+	def streamexhausted(_):
+		global CurrentPlayingMusic
+		global Queue
+		global loopingaudio
+		global skiplooping
+		if skiplooping:
+			print("Loop stopped.")
+			skiplooping = False
+			CurrentPlayingMusic = None
+			return
+		if not loopingaudio:
+			if len(Queue):
+				m = Queue.pop(0)
+				print(f"{m.prompt}:{m.path}.")
+				# await Play(m)
+				asyncio.run_coroutine_threadsafe(Play(m), bot.loop)
+			else:
+				print(f"Stopped.")
+				CurrentPlayingMusic = None
+		else:
+			print(f"New Loop.")
+			CurrentPlayingMusic.ctx.voice_client.play(
+				FFmpegPCMAudio(CurrentPlayingMusic.path), after=streamexhausted)
+	global CurrentPlayingMusic
+	VC = PD.ctx.voice_client
+	if(CurrentPlayingMusic):
+		stopPlaying(VC)
+	CurrentPlayingMusic = PD
+	VC.play(FFmpegPCMAudio(PD.path), after=streamexhausted)
+	await bot.change_presence(
+		activity=discord.Activity(
+			type=discord.ActivityType.listening,
+			name=PD.prompt))
+
 @bot.command(pass_context = True)
 async def play(ctx):
 	if not ctx.voice_client:
@@ -67,10 +102,14 @@ async def play(ctx):
 		else:
 			await ctx.send("Join channel and i will follow you.")
 			return
-	n = ctx.message.content[6:]
-	# if n.find("\\") != -1 or n.find("/") != -1:
-	# 	await ctx.send("Sorry, but Master told me not to let you go from ./lib/.")
-	# 	return
+	args = ctx.message.content.split(" ")[1:]
+	#Path Arg
+	n:string = args[-1]
+
+	needtoqueue:bool = True
+	if "-f" in args:
+		needtoqueue = False
+
 	p = f'./lib/{n}'
 	dirs = get_dirs('./lib/')
 	files = []
@@ -117,53 +156,102 @@ async def play(ctx):
 		f.close()
 	global CurrentPlayingMusic
 	if CurrentPlayingMusic:
-		stopPlaying(ctx)
-	await ctx.send("Playing " + n)
-	CurrentPlayingMusic = playing(ctx, p)
-	def streamexhausted(_):
-		global CurrentPlayingMusic
-		global loopingaudio
-		global skiplooping
-		if loopingaudio and not skiplooping:
-			CurrentPlayingMusic.ctx.voice_client.play(
-				FFmpegPCMAudio(CurrentPlayingMusic.path),
-				after=streamexhausted
-			)
+		if needtoqueue:
+			global Queue
+			Queue.append(PlayingData(ctx, p, n))
+			await ctx.send("Queued " + n)
+			return
 		else:
-			skiplooping = False
-			CurrentPlayingMusic = None
-	ctx.voice_client.play(FFmpegPCMAudio(p), after=streamexhausted)
-	await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=n))
+			stopPlaying(ctx.voice_client)
+	await ctx.send("Playing " + n)
+	await Play(PlayingData(ctx, p, n))
 
-@bot.command(pass_context = True)
+
+@bot.command()
 async def loop(ctx):
 	global loopingaudio
 	loopingaudio = not loopingaudio
 	await ctx.send(f"Now we are {'' if loopingaudio else 'not '}looping.")
 
-def stopPlaying(ctx):
+def stopPlaying(vc):
 	global skiplooping
 	skiplooping = True
-	ctx.voice_client.stop()
+	CurrentPlayingMusic = None
+	vc.stop()
+
+async def Resume(ctx):
+	if len(Queue) == 0:
+		return False
+	await Play(Queue.pop(0))
+	return True
+
+@bot.command() 
+async def resume(ctx):
+	if await Resume(ctx):
+		return
+	await ctx.send(f"Q is empty.")
 
 @bot.command()
 async def stop(ctx):
 	if ctx.voice_client:
-		stopPlaying(ctx)
+		stopPlaying(ctx.voice_client)
 		await ctx.send("Stopped")
+
+@bot.command()
+async def skip(ctx):
+	if ctx.voice_client:
+		stopPlaying(ctx.voice_client)
+		if len(Queue):
+			await Resume(ctx)
 
 @bot.command(pass_context = True)
 async def join(ctx):
 	if ctx.author.voice:
+		if(ctx.voice_client):
+			await ctx.voice_client.disconnect()
 		await ctx.message.author.voice.channel.connect()
 	else:
 		await ctx.send("Join channel and i will follow.")
+
 @bot.command(pass_context = True)
 async def leave(ctx):
 	if ctx.voice_client:
 		await ctx.voice_client.disconnect()
 	else:
 		await ctx.send("I am not in the voice channel.")
+class QueueView(discord.ui.View):
+	# def __init__(self):
+	# 	super().__init__()
+	pass
+	# @discord.ui.button(label=">", custom_id="resume", style=discord.ButtonStyle.primary)
+	# async def resume_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+	# 	resume(interaction)
+	# @discord.ui.button(label="⟳", custom_id="refresh", style=discord.ButtonStyle.primary)
+	# async def refresh_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+	# 	q(interaction)
+
+	# @discord.ui.button(label=">>", custom_id="skip", style=discord.ButtonStyle.primary)
+	# async def skip_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+	# 	skip(interaction)
+@bot.command(pass_context = True)
+async def q(ctx):
+	root = './lib/'
+	embedVar = discord.Embed(color=0x8833dd)
+	title = ""
+	if CurrentPlayingMusic:
+		print(CurrentPlayingMusic.prompt)
+		title += " " + CurrentPlayingMusic.prompt + " is playing."
+	if len(Queue) == 0:
+		embedVar.add_field(name=title, value = "Queue is empty.", inline=True)
+	else:
+		res = ''
+		idx:int = 0
+		l:int = len(listvariants)
+		for pd in Queue: #PlayingData
+			res += listvariants[idx % l] + " " + pd.prompt + "\n"
+			idx += 1
+		embedVar.add_field(name=title, value=res, inline=False)
+	await ctx.send(embed=embedVar, view=QueueView())
 
 @bot.command(pass_context = True,
 	brief="Shows files available.",
@@ -185,16 +273,16 @@ async def lib(ctx):
 			if sp[-1] in permited_extentions:
 				root_dir.append(".".join(sp[:-1]))
 	embedVar.add_field(name="./", value="; ".join(root_dir), inline=False)
-
-	# print(dot)
 	await ctx.send(embed=embedVar)
+
 @bot.command(pass_context = True)
 async def bunker(ctx):
-	# On/Off whitelist access to bot
 	v = not GetSetting("whitelisted")
 	SetSetting("whitelisted", v)
 	await ctx.send(f"Bunker turned {'on' if v else 'off'}.")
-
+@bot.command(pass_context = True)
+async def DEBUG(ctx):
+	ctx.voice_client.soundboard_sounds
 # @bot.command(pass_context = True)
 # async def hide(ctx):
 # 	v = not GetSetting("hiden-path")
