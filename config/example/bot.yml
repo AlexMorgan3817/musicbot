@@ -1,5 +1,7 @@
-token: 'Your bot token'
+token: Your bot Token
 id: Your bot ID as int
 prefix: '!'
 whitelisted: false
 whitelist: ["owner_of_bot_discord_name"]
+lib_path: './lib/bot'
+color: 0x8833dd

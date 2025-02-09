@@ -4,25 +4,30 @@ try:
 except ImportError:
 	from yaml import Loader, Dumper
 
-configuration = {}
-def LOAD_CONFIGURATION(path = "config/bot.yml"):
-	file = open(path)
-	data = load(file.read(), Loader)
-	print(dump(data, Dumper=Dumper))
-	file.close()
-	return data
+class Config():
+	values:dict = {}
+	path:str = None
+	def __init__(self, _path:str = None):
+		if _path:
+			self.path = _path
+			self.values = self.Load(_path)
 
-def SAVE_CONFIGURATION(path = "config/bot.yml", cfg = configuration):
-	f = open(path)
-	dump(cfg, f, Dumper=Dumper)
-	f.close()
+	def Set(self, key:str, value):
+		self.values[key] = value
 
-configuration = LOAD_CONFIGURATION()
+	def Get(self, key:str):
+		if self.values[key]:
+			return self.values[key]
 
-def GetSetting(key, config = configuration):
-	if(key in config):
-		return config[key]
+	def Load(self, _path):
+		file = open(_path)
+		data = load(file.read(), Loader)
+		print(dump(data, Dumper=Dumper))
+		file.close()
+		return data
+	
+	def Save(self, path:str):
+		f = open(path)
+		dump(self.values, f, Dumper=Dumper)
+		f.close()
 
-def SetSetting(key, value, config = configuration):
-	if key in config:
-		config[key] = value

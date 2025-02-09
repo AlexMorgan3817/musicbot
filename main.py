@@ -1,28 +1,41 @@
-import discord
-from discord import *
-from discord.ext import commands
-from discord import FFmpegPCMAudio
 import asyncio
-import ffmpeg
 from os.path import exists as fexist, isdir
-from os import listdir, walk
-import LnkParse3 as lps
+from os import listdir, walk, system as shell
+from sys import argv
 from random import choice as pick
+import discord
+from discord import FFmpegPCMAudio, Message
+from discord.ext import commands
+import LnkParse3 as lps
 
-from config import GetSetting, SetSetting, SAVE_CONFIGURATION
+import config
+from config import Config
 
-from structures import *
+from structures import PlayingData
+cfg_path = "config/bot.yml"
+print(argv)
+if "-cfg" in argv:
+	idx = argv.index("-cfg")
+	cfg_path = argv[idx+1]
+
+cfg:Config = Config(cfg_path)
+lib_root:str = cfg.Get("lib_path")
+name:str = cfg.Get('name')
+color:str = cfg.Get('color')#0x8833dd
+shell(f"title {name}")
+
 
 I = discord.Intents.default()
 I.message_content = True
-
-bot:commands.Bot = commands.Bot(command_prefix = GetSetting('prefix'), intents = I)
+bot:commands.Bot = commands.Bot(command_prefix = cfg.Get('prefix'), intents = I)
 loopingaudio = False
 Queue:list = []
 CurrentPlayingMusic:PlayingData = None
 permited_extentions = ["mp3", "ogg", "flac", "lnk"]
 listvariants = ["◈", "◍", "◰"]
 skiplooping = False
+VolumeMult:float = 1
+
 
 def getFilesInFolder(path, recursive = False):
 	dot = []
@@ -43,8 +56,8 @@ async def on_message(message:Message):
 	print(f'Message from [{message.author}]:{message.content}')
 	if message.author == bot.user:
 		return
-	if message.content[0] == GetSetting('prefix') and\
-	   GetSetting("whitelisted") and not message.author.name in GetSetting("whitelist"):
+	if message.content[0] == cfg.Get('prefix') and\
+	   cfg.Get("whitelisted") and not message.author.name in cfg.Get("whitelist"):
 		await message.channel.send(
 			f"Sorry, but Master prohibbited to speak with strangers for today, dear {message.author.name}.")
 		return
@@ -53,7 +66,7 @@ async def on_message(message:Message):
 	message.content = " ".join(splt)
 	await bot.process_commands(message)
 
-def get_dirs(path = "./lib/"):
+def get_dirs(path = lib_root):
 	dot = []
 	for root, d_names, f_names in walk(path):
 		dot += d_names
@@ -61,10 +74,7 @@ def get_dirs(path = "./lib/"):
 
 async def Play(PD: PlayingData):
 	def streamexhausted(_):
-		global CurrentPlayingMusic
-		global Queue
-		global loopingaudio
-		global skiplooping
+		global CurrentPlayingMusic, Queue, loopingaudio, skiplooping
 		if skiplooping:
 			print("Loop stopped.")
 			skiplooping = False
@@ -73,22 +83,22 @@ async def Play(PD: PlayingData):
 		if not loopingaudio:
 			if len(Queue):
 				m = Queue.pop(0)
-				print(f"{m.prompt}:{m.path}.")
-				# await Play(m)
 				asyncio.run_coroutine_threadsafe(Play(m), bot.loop)
 			else:
 				print(f"Stopped.")
 				CurrentPlayingMusic = None
 		else:
 			print(f"New Loop.")
-			CurrentPlayingMusic.ctx.voice_client.play(
-				FFmpegPCMAudio(CurrentPlayingMusic.path), after=streamexhausted)
-	global CurrentPlayingMusic
+			asyncio.run_coroutine_threadsafe(Play(CurrentPlayingMusic), bot.loop)
+			# CurrentPlayingMusic.ctx.voice_client.play(
+			# 	FFmpegPCMAudio(CurrentPlayingMusic.path), after=streamexhausted)
+	global CurrentPlayingMusic, VolumeMult
 	VC = PD.ctx.voice_client
 	if(CurrentPlayingMusic):
 		stopPlaying(VC)
 	CurrentPlayingMusic = PD
 	VC.play(FFmpegPCMAudio(PD.path), after=streamexhausted)
+	VC.source = discord.PCMVolumeTransformer(VC.source, volume=VolumeMult)
 	await bot.change_presence(
 		activity=discord.Activity(
 			type=discord.ActivityType.listening,
@@ -104,23 +114,23 @@ async def play(ctx):
 			return
 	args = ctx.message.content.split(" ")[1:]
 	#Path Arg
-	n:string = args[-1]
 
 	needtoqueue:bool = True
-	if "-f" in args:
+	idx_to_cut:int = 0
+	if args[0] == "-f":
 		needtoqueue = False
+		idx_to_cut:int = 1
+	n:str = " ".join(args[idx_to_cut:])
 
-	p = f'./lib/{n}'
-	dirs = get_dirs('./lib/')
+	p = f'{lib_root}/{n}'
+	dirs = get_dirs(lib_root + "/")
 	files = []
-	for i in listdir("./lib/"):
-		files.append(f"./lib/{i}")
+	for i in listdir(lib_root + "/"):
+		files.append(f"{lib_root}/{i}")
 	if len(dirs) != 0:
 		for j in dirs:
-			for i in listdir(f"./lib/{j}"):
-				files.append(f"./lib/{j}/{i}")
-	# print(dirs)
-	# print(files)
+			for i in listdir(f"{lib_root}/{j}"):
+				files.append(f"{lib_root}/{j}/{i}")
 	if not fexist(p):
 		for i in files:
 			splt_0 = i.split("/")
@@ -147,11 +157,9 @@ async def play(ctx):
 	ext = p.split(".")
 	if ext[-1] == "lnk":
 		f = open(p, 'rb')
-		lnk_data:string = lps.lnk_file(f)
+		lnk_data:str = lps.lnk_file(f)
 		j = lnk_data.get_json()["link_info"]
-		p = j["local_base_path"] + j["common_path_suffix"]
-		# if(isdir(p))
-			
+		p = j["local_base_path"] + j["common_path_suffix"]	
 		print(p)
 		f.close()
 	global CurrentPlayingMusic
@@ -235,11 +243,9 @@ class QueueView(discord.ui.View):
 	# 	skip(interaction)
 @bot.command(pass_context = True)
 async def q(ctx):
-	root = './lib/'
-	embedVar = discord.Embed(color=0x8833dd)
+	embedVar = discord.Embed(color=color)
 	title = ""
 	if CurrentPlayingMusic:
-		print(CurrentPlayingMusic.prompt)
 		title += " " + CurrentPlayingMusic.prompt + " is playing."
 	if len(Queue) == 0:
 		embedVar.add_field(name=title, value = "Queue is empty.", inline=True)
@@ -257,8 +263,8 @@ async def q(ctx):
 	brief="Shows files available.",
 	description="Shows files on server available for play.")
 async def lib(ctx):
-	root = './lib/'
-	embedVar = discord.Embed(color=0x8833dd)
+	root = lib_root + "/"
+	embedVar = discord.Embed(color=color)
 	root_dir = []
 	for i in listdir(root):
 		sp = i.split(".")
@@ -277,18 +283,37 @@ async def lib(ctx):
 
 @bot.command(pass_context = True)
 async def bunker(ctx):
-	v = not GetSetting("whitelisted")
-	SetSetting("whitelisted", v)
+	v = not cfg.Get("whitelisted")
+	cfg.Set("whitelisted", v)
 	await ctx.send(f"Bunker turned {'on' if v else 'off'}.")
+
 @bot.command(pass_context = True)
 async def DEBUG(ctx):
 	ctx.voice_client.soundboard_sounds
 # @bot.command(pass_context = True)
 # async def hide(ctx):
-# 	v = not GetSetting("hiden-path")
-# 	SetSetting("hiden-path", v)
+# 	v = not Get("hiden-path")
+# 	Get("hiden-path", v)
 # 	await ctx.send(f"Hide {'on' if v else 'off'}.")
+@bot.command(pass_context = True)
+async def vol(ctx:commands.Context):
+	global VolumeMult
+	args = ctx.message.content.split(" ")
+	if len(args) < 2:
+		await ctx.send(f"Громкость: {VolumeMult}.")
+		return
+	if not ctx.voice_client:
+		await ctx.send(f"Я не слушаю.")
+		return
+	if not ctx.voice_client.source:
+		await ctx.send(f"Ничего не играет.")
+		return
+	volume:int = float(args[1])
+	if not volume: return
+	VolumeMult *= volume
+	ctx.voice_client.source = discord.PCMVolumeTransformer(ctx.voice_client.source, volume=volume)
+	await ctx.send(f"Новая громкость: {VolumeMult}.")
 
-bot.run(GetSetting('token'))
+bot.run(cfg.Get('token'))
 # SAVE_CONFIGURATION()
 # print("End.")

@@ -1,5 +1,7 @@
-/config/*
-!/config/*/
-/data/*
+.vscode/
+config/*
+!config/*/
+data/*
 __pycache__/
-lib/*
+lib/
+run*.bat
